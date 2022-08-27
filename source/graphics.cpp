@@ -896,14 +896,14 @@ void Graphics::tline(int x0, int y0, int x1, int y1, fix32 mx, fix32 my, fix32 m
             if (x == xend)
                 break;
             x += dx;
-            y = y0 + ((float)(x - x0) / (x1 - x0)) * (y1 - y0);
+            y = y0 + (x - x0) * (y1 - y0) / (x1 - x0);
         }
         else {
             if (y == yend)
                 break;
             y += dy;
 			if (! vertical) {
-            	x = x0 + ((float)(y - y0) / (y1 - y0)) * (x1 - x0);
+            	x = x0 + (y - y0) * (x1 - x0) / (y1 - y0);
 			}
 		}
 	}
@@ -1360,7 +1360,7 @@ std::tuple<int, int> Graphics::drawCharacterFromBytes(
 		_memory->drawState.color = prevPenColor;
 	}
 
-	for (size_t i = 0; i < charHeight * hFactor; i++) {
+	for (int i = 0; i < charHeight * hFactor; i++) {
 		for(uint8_t bitn = 0; bitn < charWidth * wFactor; bitn++) {
 			bool on = BITMASK(bitn / wFactor) & chBytes[i / hFactor];
 			on &= wFactor == 1 || !evenPxOnly || (i % 2 == 0);

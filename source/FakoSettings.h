@@ -39,7 +39,7 @@ function _init()
 	end
 	refreshcolors()
 	
-	settinglist = {'kbmode','resizekey','stretch','menustyle','bgcolor'}
+	settinglist = {'kbmode','audiochannels','resizekey','stretch','menustyle','bgcolor'}
 	settings = {}
 	for i,v in ipairs(settinglist) do
 		settings[v] = __getsetting(v) + 1
@@ -54,7 +54,11 @@ function _init()
 			}
 		}},
 		{name='audio',ops = {
-			
+			{
+				name = 'channel count',
+				vn = 'audiochannels',
+				ch ={'off', '1', '2', '3', '4'}
+			},
 		}},
 		{name='video',ops = {
 			{
@@ -65,7 +69,7 @@ function _init()
 			{
 				name = 'stretch mode',
 				vn = 'stretch',
-				ch ={'pixel perfect','pixel perfect stretch','stretch to fit','overflow stretch','alt screen pixel perfect','alt screen stretch'}
+				ch ={'pixel perfect','pixel perfect stretch','stretch to fit','stretch to fill','overflow stretch','alt screen pixel perfect','alt screen stretch'}
 			}
 		}},
 		{name='menu',ops = {

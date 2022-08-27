@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
 {
 	Host *host = new Host();
 	PicoRam *memory = new PicoRam();
-	Audio *audio = new Audio(memory);
+	Audio *audio = new Audio(memory, host->getSetting("audiochannels"));
 
 	Logger_Initialize(host->logFilePrefix());
 	

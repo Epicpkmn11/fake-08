@@ -13,29 +13,25 @@
 #include "synth.h"
 
 //#include <lol/noise> // lol::perlin_noise
-#include <cmath>     // std::fabs, std::fmod
 #include <algorithm> //std::min, std::max
-
-//temp for printf debugging
-//#include <stdio.h>
 
 namespace z8
 {
 
-float synth::waveform(int instrument, float advance)
+#ifdef _NDS
+__attribute__((section(".itcm"), long_call))
+#endif
+fix32 synth::waveform(int instrument, fix32 advance)
 {
-    using std::fabs;
-    using std::fmod;
-
     //const from picolove:
     //local function note_to_hz(note)
 	//  return 440 * 2 ^ ((note - 33) / 12)
     //end
     //local tscale = note_to_hz(63) / __sample_rate
-    const float tscale = 0.11288053831187f;
+    constexpr fix32 tscale = 0.11288053831187;
 
-    float t = fmod(advance, 1.f);
-    float ret = 0.f;
+    fix32 t = fix32::modf(advance);
+    fix32 ret = 0;
 
     // Multipliers were measured from PICO-8 WAV exports. Waveforms are
     // inferred from those exports by guessing what the original formulas
@@ -43,24 +39,24 @@ float synth::waveform(int instrument, float advance)
     switch (instrument)
     {
         case INST_TRIANGLE:
-            return 0.5f * (fabs(4.f * t - 2.0f) - 1.0f);
+            return fix32(0.5) * (fix32::abs(fix32(4) * t - fix32(2)) - fix32(1));
         case INST_TILTED_SAW:
         {
-            static float const a = 0.9f;
-            ret = t < a ? 2.f * t / a - 1.f
-                        : 2.f * (1.f - t) / (1.f - a) - 1.f;
-            return ret * 0.5f;
+            constexpr fix32 a = 0.9;
+            ret = t < a ? fix32(2) * t / a - fix32(1)
+                        : fix32(2) * (fix32(1) - t) / (fix32(1) - a) - fix32(1);
+            return ret * fix32(0.5);
         }
         case INST_SAW:
-            return 0.653f * (t < 0.5f ? t : t - 1.f);
+            return fix32(0.653) * (t < fix32(0.5) ? t : t - fix32(1));
         case INST_SQUARE:
-            return t < 0.5f ? 0.25f : -0.25f;
+            return t < fix32(0.5) ? fix32(0.25) : fix32(-0.25);
         case INST_PULSE:
-            return t < 1.f / 3 ? 0.25f : -0.25f;
+            return t < fix32(1) / fix32(3) ? fix32(0.25) : fix32(-0.25);
         case INST_ORGAN:
-            ret = t < 0.5f ? 3.f - fabs(24.f * t - 6.f)
-                           : 1.f - fabs(16.f * t - 12.f);
-            return ret / 9.f;
+            ret = t < fix32(0.5) ? fix32(3) - fix32::abs(fix32(24) * t - fix32(6))
+                                 : fix32(1) - fix32::abs(fix32(16) * t - fix32(12));
+            return ret / fix32(9);
         case INST_NOISE:
         {
             // Spectral analysis indicates this is some kind of brown noise,
@@ -73,12 +69,12 @@ float synth::waveform(int instrument, float advance)
             //TODO: not even doing zepto 8 noise here
 
             //static lol::perlin_noise<1> noise;
-            //for (float m = 1.75f, d = 1.f; m <= 128; m *= 2.25f, d *= 0.75f)
-            //    ret += d * noise.eval(lol::vec_t<float, 1>(m * advance));
+            //for (fix32 m = fix32(1.75), d = fix32(1); m <= 128; m *= fix32(2.25), d *= fix32(0.75))
+            //    ret += d * noise.eval(lol::vec_t<fix32, 1>(m * advance));
 
-            //ret = ((float)rand() / (float)RAND_MAX);
+            //ret = (fix32(rand()) / fix32(RAND_MAX));
 
-            //return ret * 0.4f;
+            //return ret * fix32(0.4);
 
             //picolove noise function in lua
             //zepto8 phi == picolove oscpos (x parameter in picolove generator func, advance in synth.cpp waveform function)
@@ -101,13 +97,13 @@ float synth::waveform(int instrument, float advance)
             //printf("tscale: %f\n", tscale);
             //printf("advance: %f\n", advance);
 
-            float scale = (advance - lastadvance) / tscale;
+            fix32 scale = (advance - lastadvance) / tscale;
             //printf("scale: %f\n", scale);
             lsample = sample;
-            sample = (lsample + scale * (((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f)) / (1.0f + scale);
+            sample = (lsample + scale * ((fix32(rand()) / fix32(RAND_MAX)) * fix32(2) - fix32(1))) / (fix32(1) + scale);
             //printf("sample: %f\n", sample);
             lastadvance = advance;
-            float endval = std::min(std::max((lsample + sample) * 4.0f / 3.0f * (1.75f - scale), -1.0f), 1.0f) * 0.2f;
+            fix32 endval = fix32::min(fix32::max((lsample + sample) * fix32(4) / fix32(3) * (fix32(1.75) - scale), fix32(-1)), fix32(1)) * fix32(0.2);
             //printf("endval: %f\n", endval);
             return endval;
         }
@@ -115,15 +111,14 @@ float synth::waveform(int instrument, float advance)
         {   // This one has a subfrequency of freq/128 that appears
             // to modulate two signals using a triangle wave
             // FIXME: amplitude seems to be affected, too
-            float k = fabs(2.f * fmod(advance / 128.f, 1.f) - 1.f);
-            float u = fmod(t + 0.5f * k, 1.0f);
-            ret = fabs(4.f * u - 2.f) - fabs(8.f * t - 4.f);
-            return ret / 6.f;
+            fix32 k = fix32::abs(fix32(2) * fix32::modf(advance / fix32(128)) - fix32(1));
+            fix32 u = fix32::modf(t + fix32(0.5) * k);
+            ret = fix32::abs(fix32(4) * u - fix32(2)) - fix32::abs(fix32(8) * t - fix32(4));
+            return ret / fix32(6);
         }
     }
 
-    return 0.0f;
+    return fix32(0);
 }
 
 } // namespace z8
-

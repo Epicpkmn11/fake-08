@@ -6,89 +6,69 @@ ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
 endif
 
-TOPDIR ?= $(CURDIR)
-include $(DEVKITARM)/3ds_rules
+# These set the information text in the nds file
+GAME_TITLE     := $(APP_TITLE)
+GAME_SUBTITLE1 := A Pico 8 Emulator
+GAME_SUBTITLE2 := $(APP_AUTHOR)
+
+include $(DEVKITARM)/ds_rules
 
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output
 # BUILD is the directory where object files & intermediate files will be placed
 # SOURCES is a list of directories containing source code
-# DATA is a list of directories containing data files
-# INCLUDES is a list of directories containing header files
-# GRAPHICS is a list of directories containing graphics files
-# GFXBUILD is the directory where converted graphics files will be placed
-#   If set to $(BUILD), it will statically link in the converted
-#   files as if they were data files.
-#
-# NO_SMDH: if set to anything, no SMDH file is generated.
-# ROMFS is the directory which contains the RomFS, relative to the Makefile (Optional)
-# APP_TITLE is the name of the app stored in the SMDH file (Optional)
-# APP_DESCRIPTION is the description of the app stored in the SMDH file (Optional)
-# APP_AUTHOR is the author of the app stored in the SMDH file (Optional)
-# ICON is the filename of the icon (.png), relative to the project folder.
-#   If not set, it attempts to use one of the following (in this order):
-#     - <Project name>.png
-#     - icon.png
-#     - <libctru folder>/default_icon.png
+# INCLUDES is a list of directories containing extra header files
+# DATA is a list of directories containing binary files embedded using bin2o
+# GRAPHICS is a list of directories containing image files to be converted with grit
+# AUDIO is a list of directories containing audio to be converted by maxmod
+# ICON is the image used to create the game icon, leave blank to use default rule
+# NITRO is a directory that will be accessible via NitroFS
 #---------------------------------------------------------------------------------
-APP_TITLE	:= $(APP_TITLE)
-APP_AUTHOR	:= $(APP_AUTHOR)
-APP_VERSION	:= $(APP_VERSION)
+TARGET   := $(APP_TITLE)
+BUILD    := build
+SOURCES  := ${SOURCES} source
+INCLUDES := ${INCLUDES}
+DATA     :=
+GRAPHICS :=
+AUDIO    :=
+ICON     :=
 
-APP_DESCRIPTION  := A Pico 8 Emulator
-
-APP_UNIQUE_ID    := 0xF8F08
-APP_PRODUCT_CODE := CTR-P-FK08
-
-TARGET		:=	FAKE-08
-BUILD		:=	build
-SOURCES		:=	${SOURCES} source
-DATA		:=	data
-INCLUDES	:=	${INCLUDES}
-GRAPHICS	:=	gfx
-GFXBUILD	:=	$(BUILD)
-#ROMFS		:=	romfs
-#GFXBUILD	:=	$(ROMFS)/gfx
+# specify a directory which contains the nitro filesystem
+# this is relative to the Makefile
+NITRO    :=
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-CC = $(CXX)
+ARCH := -marm -mthumb-interwork -march=armv5te -mtune=arm946e-s
 
-#Optimization/perf notes:
-#fast-math doesn't seem to help. -O3 seems to help a little. no exceptions doesn't make a difference in perf
-#-Ofast doesn't seem to improve beyond -O3 (but I'm leaving it anyway)
-#optimization notes: lots of time setting pixels. Tried making uiunt4_t type, and unioning ram, didn't seem to help
-#tried optimizing set pixel nibel by inlining more stuff. May have helped a tiny bit
-#looping on pico pixels instead of 3ds pixels seems to help
-#no definite difference with -funroll-loops
-#unroll templates: https://stackoverflow.com/a/28232338 don't seem any better than looping just 3ds pixels
+CFLAGS   := -Wall -Ofast\
+            $(ARCH) $(INCLUDE) -DARM9 -D_NDS
+CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
+ASFLAGS  := $(ARCH)
+LDFLAGS   = -specs=ds_arm9.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+CC = $(CXX) # Dumb and cursed, we're building C as C++
 
-CFLAGS	:=	-g -Wall -Ofast -mword-relocations \
-			-fomit-frame-pointer -ffunction-sections \
-			$(ARCH)
+#---------------------------------------------------------------------------------
+# any extra libraries we wish to link with the project (order is important)
+#---------------------------------------------------------------------------------
+LIBS := -lmm9 -lfat -lnds9
 
-CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -DVER_STR=\"$(APP_VERSION)\"
-
-# enable pack in games with this platform
-
-# CFLAGS  +=  -DLOAD_PACK_INS
-
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
-
-ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
-
-LIBS	:= -lcitro2d -lcitro3d -lctru -lm
+# automatigically add libraries for NitroFS
+ifneq ($(strip $(NITRO)),)
+LIBS := -lfilesystem -lfat $(LIBS)
+endif
+# automagically add maxmod library
+ifneq ($(strip $(AUDIO)),)
+LIBS := -lmm9 $(LIBS)
+endif
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-LIBDIRS	:= $(CTRULIB)
-
+LIBDIRS := $(LIBNDS) $(PORTLIBS)
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -97,196 +77,143 @@ LIBDIRS	:= $(CTRULIB)
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
 
-export OUTPUT	:=	$(CURDIR)/$(TARGET)
-export TOPDIR	:=	$(CURDIR)
+export OUTPUT := $(CURDIR)/$(TARGET)
 
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+export VPATH := $(CURDIR)/$(subst /,,$(dir $(ICON)))\
+                $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))\
+                $(foreach dir,$(DATA),$(CURDIR)/$(dir))\
+                $(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir))
 
-export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+export DEPSDIR := $(CURDIR)/$(BUILD)
 
-CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
-PICAFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
-SHLISTFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
-GFXFILES	:=	$(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.t3s)))
-BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+PNGFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.png)))
+BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+
+# prepare NitroFS directory
+ifneq ($(strip $(NITRO)),)
+  export NITRO_FILES := $(CURDIR)/$(NITRO)
+endif
+
+# get audio list for maxmod
+ifneq ($(strip $(AUDIO)),)
+  export MODFILES	:=	$(foreach dir,$(notdir $(wildcard $(AUDIO)/*.*)),$(CURDIR)/$(AUDIO)/$(dir))
+
+  # place the soundbank file in NitroFS if using it
+  ifneq ($(strip $(NITRO)),)
+    export SOUNDBANK := $(NITRO_FILES)/soundbank.bin
+
+  # otherwise, needs to be loaded from memory
+  else
+    export SOUNDBANK := soundbank.bin
+    BINFILES += $(SOUNDBANK)
+  endif
+endif
 
 #---------------------------------------------------------------------------------
 # use CXX for linking C++ projects, CC for standard C
 #---------------------------------------------------------------------------------
 ifeq ($(strip $(CPPFILES)),)
 #---------------------------------------------------------------------------------
-	export LD	:=	$(CC)
+  export LD := $(CC)
 #---------------------------------------------------------------------------------
 else
 #---------------------------------------------------------------------------------
-	export LD	:=	$(CXX)
+  export LD := $(CXX)
 #---------------------------------------------------------------------------------
 endif
 #---------------------------------------------------------------------------------
 
-#---------------------------------------------------------------------------------
-ifeq ($(GFXBUILD),$(BUILD))
-#---------------------------------------------------------------------------------
-export T3XFILES :=  $(GFXFILES:.t3s=.t3x)
-#---------------------------------------------------------------------------------
-else
-#---------------------------------------------------------------------------------
-export ROMFS_T3XFILES	:=	$(patsubst %.t3s, $(GFXBUILD)/%.t3x, $(GFXFILES))
-export T3XHFILES		:=	$(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
-#---------------------------------------------------------------------------------
-endif
-#---------------------------------------------------------------------------------
+export OFILES_BIN   :=	$(addsuffix .o,$(BINFILES))
 
-export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_SOURCES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
-export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES)) \
-			$(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
-			$(addsuffix .o,$(T3XFILES))
+export OFILES := $(PNGFILES:.png=.o) $(OFILES_BIN) $(OFILES_SOURCES)
 
-export OFILES := $(OFILES_BIN) $(OFILES_SOURCES)
+export HFILES := $(PNGFILES:.png=.h) $(addsuffix .h,$(subst .,_,$(BINFILES)))
 
-export HFILES	:=	$(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
-			$(addsuffix .h,$(subst .,_,$(BINFILES))) \
-			$(GFXFILES:.t3s=.h)
-
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
-
-export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
-
-export _3DSXDEPS	:=	$(if $(NO_SMDH),,$(OUTPUT).smdh)
+export INCLUDE  := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir))\
+                   $(foreach dir,$(LIBDIRS),-I$(dir)/include)\
+                   -I$(CURDIR)/$(BUILD)
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 ifeq ($(strip $(ICON)),)
-	icons := $(wildcard *.png)
-	ifneq (,$(findstring $(TARGET).png,$(icons)))
-		export APP_ICON := $(TOPDIR)/$(TARGET).png
-	else
-		ifneq (,$(findstring icon.png,$(icons)))
-			export APP_ICON := $(TOPDIR)/icon.png
-		endif
-	endif
+  icons := $(wildcard *.bmp)
+
+  ifneq (,$(findstring $(TARGET).bmp,$(icons)))
+    export GAME_ICON := $(CURDIR)/$(TARGET).bmp
+  else
+    ifneq (,$(findstring icon.bmp,$(icons)))
+      export GAME_ICON := $(CURDIR)/icon.bmp
+    endif
+  endif
 else
-	export APP_ICON := $(TOPDIR)/$(ICON)
+  ifeq ($(suffix $(ICON)), .grf)
+    export GAME_ICON := $(CURDIR)/$(ICON)
+  else
+    export GAME_ICON := $(CURDIR)/$(BUILD)/$(notdir $(basename $(ICON))).grf
+  endif
 endif
 
-ifeq ($(strip $(NO_SMDH)),)
-	export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
-endif
-
-ifneq ($(ROMFS),)
-	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
-endif
-
-.PHONY: all clean
+.PHONY: $(BUILD) clean
 
 #---------------------------------------------------------------------------------
-all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
 $(BUILD):
 	@mkdir -p $@
-
-ifneq ($(GFXBUILD),$(BUILD))
-$(GFXBUILD):
-	@mkdir -p $@
-endif
-
-ifneq ($(DEPSDIR),$(BUILD))
-$(DEPSDIR):
-	@mkdir -p $@
-endif
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(TARGET)-strip.elf $(TARGET)-cia.bnr $(TARGET)-cia.smdh $(TARGET).cia
+	@rm -fr $(BUILD) $(TARGET).elf $(TARGET).nds $(SOUNDBANK)
 
 #---------------------------------------------------------------------------------
-$(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
-#---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@tex3ds -i $< -H $(BUILD)/$*.h -d $(DEPSDIR)/$*.d -o $(GFXBUILD)/$*.t3x
-
-#---------------------------------------------------------------------------------
-$(TARGET)-strip.elf: $(BUILD)
-	@$(STRIP) $(TARGET).elf -o $(TARGET)-strip.elf
-#---------------------------------------------------------------------------------
-$(TARGET)-cia.bnr: banner/$(TARGET)-banner.png banner/$(TARGET).wav
-	@bannertool makebanner -i banner/$(TARGET)-banner.png -a banner/$(TARGET).wav -o $(TARGET)-cia.bnr
-#---------------------------------------------------------------------------------
-$(TARGET)-cia.smdh: banner/$(TARGET)-icon.png 
-	@bannertool makesmdh -s "$(TARGET)" -l "$(APP_TITLE)" -p "$(APP_AUTHOR)" -i banner/$(TARGET)-icon.png -o $(TARGET)-cia.smdh -r regionfree
-
-#---------------------------------------------------------------------------------
-cia: $(TARGET)-strip.elf $(TARGET)-cia.bnr $(TARGET)-cia.smdh banner/$(TARGET).rsf
-	@makerom -f cia -elf $(TARGET)-strip.elf -icon $(TARGET)-cia.smdh -banner $(TARGET)-cia.bnr -desc app:4 -v -o $(TARGET).cia -target t -exefslogo -rsf banner/$(TARGET).rsf \
-	-DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)"
-	@echo "built cia"
-#---------------------------------------------------------------------------------
-
 else
 
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-$(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)
+$(OUTPUT).nds: $(OUTPUT).elf $(NITRO_FILES) $(GAME_ICON)
+$(OUTPUT).elf: $(OFILES)
 
+# source files depend on generated headers
 $(OFILES_SOURCES) : $(HFILES)
 
-$(OUTPUT).elf	:	$(OFILES)
+# need to build soundbank first
+$(OFILES): $(SOUNDBANK)
 
 #---------------------------------------------------------------------------------
-# you need a rule like this for each extension you use as binary data
+# rule to build solution from music files
 #---------------------------------------------------------------------------------
-%.bin.o	%_bin.h :	%.bin
+$(SOUNDBANK) : $(MODFILES)
+#---------------------------------------------------------------------------------
+	mmutil $^ -d -o$@ -hsoundbank.h
+
+#---------------------------------------------------------------------------------
+%.bin.o %_bin.h : %.bin
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
 
 #---------------------------------------------------------------------------------
-.PRECIOUS	:	%.t3x
+# This rule creates assembly source files using grit
+# grit takes an image file and a .grit describing how the file is to be processed
+# add additional rules like this for each image extension
+# you use in the graphics folders
 #---------------------------------------------------------------------------------
-%.t3x.o	%_t3x.h :	%.t3x
+%.s %.h: %.png %.grit
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@$(bin2o)
+	grit $< -fts -o$*
 
 #---------------------------------------------------------------------------------
-# rules for assembling GPU shaders
+# Convert non-GRF game icon to GRF if needed
 #---------------------------------------------------------------------------------
-define shader-as
-	$(eval CURBIN := $*.shbin)
-	$(eval DEPSFILE := $(DEPSDIR)/$*.shbin.d)
-	echo "$(CURBIN).o: $< $1" > $(DEPSFILE)
-	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(CURBIN) | tr . _)`.h
-	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(CURBIN) | tr . _)`.h
-	echo "extern const u32" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(CURBIN) | tr . _)`.h
-	picasso -o $(CURBIN) $1
-	bin2s $(CURBIN) | $(AS) -o $*.shbin.o
-endef
-
-%.shbin.o %_shbin.h : %.v.pica %.g.pica
-	@echo $(notdir $^)
-	@$(call shader-as,$^)
-
-%.shbin.o %_shbin.h : %.v.pica
-	@echo $(notdir $<)
-	@$(call shader-as,$<)
-
-%.shbin.o %_shbin.h : %.shlist
-	@echo $(notdir $<)
-	@$(call shader-as,$(foreach file,$(shell cat $<),$(dir $<)$(file)))
-
+$(GAME_ICON): $(notdir $(ICON))
 #---------------------------------------------------------------------------------
-%.t3x	%.h	:	%.t3s
-#---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@tex3ds -i $< -H $*.h -d $*.d -o $*.t3x
+	@echo convert $(notdir $<)
+	@grit $< -g -gt -gB4 -gT FF00FF -m! -p -pe 16 -fh! -ftr
 
 -include $(DEPSDIR)/*.d
 

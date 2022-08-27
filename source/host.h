@@ -73,6 +73,11 @@ class Host {
 	ResizekeyOption resizekey = NoResize;
 	MenuStyleOption menustyle = Fancy;
 	BgColorOption bgcolor = Gray;
+  #ifdef _NDS
+	int audiochannels = 1;
+  #else
+	int audiochannels = 4;
+  #endif
 	
     float scaleX = 1.0;
     float scaleY = 1.0;

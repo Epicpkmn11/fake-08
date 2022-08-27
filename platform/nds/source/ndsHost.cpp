@@ -1,17 +1,18 @@
-#include <3ds.h>
-#include <citro3d.h>
-#include <citro2d.h>
+#include <fat.h>
+#include <maxmod9.h>
+#include <nds.h>
+#include <gl2d.h>
 
 
-#include <stdio.h>
-#include <string.h>
 #include <dirent.h>
 #include <errno.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <fstream>
 #include <iostream>
-using namespace std;
 
 
 #include "../../../source/host.h"
@@ -20,106 +21,59 @@ using namespace std;
 #include "../../../source/PicoRam.h"
 #include "../../../source/filehelpers.h"
 
-#define SCREEN_WIDTH 400;
-#define SCREEN_HEIGHT 240;
-
-#define SCREEN_2_WIDTH 320;
-#define SCREEN_2_HEIGHT 240;
-
 #define SAMPLERATE 22050
 #define SAMPLESPERBUF (SAMPLERATE / 30)
-#define NUM_BUFFERS 2
-
-const int __3ds_TopScreenWidth = SCREEN_WIDTH;
-const int __3ds_TopScreenHeight = SCREEN_HEIGHT;
-
-const int __3ds_BottomScreenWidth = SCREEN_2_WIDTH;
-const int __3ds_BottomScreenHeight = SCREEN_2_HEIGHT;
-
 
 const int PicoScreenWidth = 128;
 const int PicoScreenHeight = 128;
 
 const int PicoFbLength = 128 * 64;
 
-u64 last_time;
-u64 now_time;
-u64 frame_time;
-float targetFrameTimeMs;
+volatile int framesSinceWait = 0;
 
-u32 currKDown32;
-u32 currKHeld32;
-int touchLocationX;
-int touchLocationY;
+u32 kDown;
+u32 kHeld;
+u16 touchX;
+u16 touchY;
 uint8_t mouseBtnState;
 
-uint16_t _rgb565Colors[144];
-uint32_t _rgba8Colors[144];
 Audio* _audio;
+uint16_t _rgb555Colors[144];
+int targetFps = 60;
 
-u8 consoleModel = 0;
+int consoleModel = 0;
 
-static C2D_Image pico_image;
+void vblankHandler() {
+	framesSinceWait++;
+}
 
-C3D_Tex *pico_tex;
-Tex3DS_SubTexture *pico_subtex;
-
-C3D_RenderTarget* topTarget;
-C3D_RenderTarget* bottomTarget;
-
-u16* pico_pixel_buffer;
-
-const GPU_TEXCOLOR texColor = GPU_RGB565;
-
-#define CLEAR_COLOR 0xFF000000
-#define BYTES_PER_PIXEL 2
-size_t pico_pixel_buffer_size = 128*128*BYTES_PER_PIXEL;
-
-
-int topXOffset = 0;
-int topYOffset = 8;
-int topSubTexWidth = 256;
-int topSubTexHeight = 256;
-
-int bottomXOffset = 0;
-int bottomYOffset = -232;
-int bottomSubTexWidth = 256;
-int bottomSubTexHeight = 256;
-
-float screenModeScaleX = 1.0f;
-float screenModeScaleY = 1.0f;
-float screenModeAngle = 0;
-int flipHorizontal = 1;
-int flipVertical = 1;
-
-
-uint8_t ConvertInputToP8(u32 input){
+uint8_t ConvertInputToP8(uint32_t input) {
 	uint8_t result = 0;
-	if (input & KEY_LEFT){
+	if (input & KEY_LEFT) {
 		result |= P8_KEY_LEFT;
 	}
 
-	if (input & KEY_RIGHT){
+	if (input & KEY_RIGHT) {
 		result |= P8_KEY_RIGHT;
 	}
 
-	if (input & KEY_UP){
+	if (input & KEY_UP) {
 		result |= P8_KEY_UP;
 	}
 
-	if (input & KEY_DOWN){
+	if (input & KEY_DOWN) {
 		result |= P8_KEY_DOWN;
 	}
 
-	if (input & KEY_B){
+	if (input & KEY_B) {
 		result |= P8_KEY_O;
 	}
 
-	if (input & KEY_A){
+	if (input & KEY_A) {
 		result |= P8_KEY_X;
 	}
 
-	if (input & KEY_START){
+	if (input & KEY_START) {
 		result |= P8_KEY_PAUSE;
 	}
 
@@ -127,625 +81,407 @@ uint8_t ConvertInputToP8(u32 input){
 }
 
 void setRenderParamsFromStretch(StretchOption stretch) {
-    if (stretch == StretchToFit) {
-        topXOffset = 0;
-        topYOffset = 0;
-        topSubTexWidth = 240;
-        topSubTexHeight = 240;
-        
-        bottomXOffset = 0;
-        bottomYOffset = 0;
-        bottomSubTexWidth = 0;
-        bottomSubTexHeight = 0;
-    }
-    else if (stretch == StretchAndOverflow) {
-        topXOffset = 0;
-        topYOffset = 8;
-        topSubTexWidth = 256;
-        topSubTexHeight = 256;
-
-        bottomXOffset = 0;
-        bottomYOffset = -232;
-        bottomSubTexWidth = 256;
-        bottomSubTexHeight = 256;
-    }
-    else if (stretch == AltScreenPixelPerfect) {
-        topXOffset = 0;
-        topYOffset = 0;
-        topSubTexWidth = 0;
-        topSubTexHeight = 0;
-
-        bottomXOffset = 0;
-        bottomYOffset = 0;
-        bottomSubTexWidth = 128;
-        bottomSubTexHeight = 128;
-    }
-    else if (stretch == AltScreenStretch) {
-        topXOffset = 0;
-        topYOffset = 0;
-        topSubTexWidth = 0;
-        topSubTexHeight = 0;
-
-        bottomXOffset = 0;
-        bottomYOffset = 0;
-        bottomSubTexWidth = 240;
-        bottomSubTexHeight = 240;
-    }
-    else {
-        topXOffset = 0;
-        topYOffset = 0;
-        topSubTexWidth = 128;
-        topSubTexHeight = 128;
-        
-        bottomXOffset = 0;
-        bottomYOffset = 0;
-        bottomSubTexWidth = 0;
-        bottomSubTexHeight = 0;
-    }
-}
-
-
-
-void init_fill_buffer(void *audioBuffer,size_t offset, size_t size) {
-
-	u32 *dest = (u32*)audioBuffer;
-
-	for (size_t i=0; i<size; i++) {
-		dest[i] = 0;
+	lcdMainOnTop();
+	switch(stretch) {
+		case AltScreenPixelPerfect:
+			lcdMainOnBottom();
+		case PixelPerfect:
+		case PixelPerfectStretch:
+		case FourByThreeVertPerfect:
+			bgSetScroll(3, -64, -32);
+			bgSetScale(3, 0x100, 0x100);
+			bgUpdate();
+			break;
+		case AltScreenStretch:
+			lcdMainOnBottom();
+		case StretchToFit:
+		case FourByThreeStretch:
+			bgSetScroll(3, -21, 0);
+			bgSetScale(3, 0x0AC, 0x0AC);
+			bgUpdate();
+			break;
+		case StretchToFill:
+			bgSetScroll(3, 0, 0);
+			bgSetScale(3, 0x080, 0x0AC);
+			bgUpdate();
+			break;
+		case StretchAndOverflow:
+			bgSetScroll(3, 0, 32);
+			bgSetScale(3, 0x080, 0x080);
+			bgUpdate();
+			break;
 	}
-
-	DSP_FlushDataCache(audioBuffer,size);
-
 }
 
-bool audioInitialized = false;
-u32 *audioBuffer;
-u32 audioBufferSize;
-ndspWaveBuf waveBuf[2];
-bool fillBlock = false;
-u32 currPos;
-
-
-void audioCleanup(){
-    audioInitialized = false;
-
-    ndspExit();
-
-    if(audioBuffer != nullptr) {
-        linearFree(audioBuffer);
-        audioBuffer = nullptr;
-    }
+mm_word onStreamRequest(mm_word length, mm_addr dest, mm_stream_formats format) {
+	_audio->FillMonoAudioBuffer(dest, 0, length);
+	return length;
 }
 
-void audioSetup(){
-    if(R_FAILED(ndspInit())) {
-        return;
-    }
+void audioSetup() {
+	mm_ds_system sys;
+	sys.mod_count 			= 0;
+	sys.samp_count			= 0;
+	sys.mem_bank			= 0;
+	sys.fifo_channel		= FIFO_MAXMOD;
+	mmInit(&sys);
 
-	//audio setup
-	audioBufferSize = SAMPLESPERBUF * NUM_BUFFERS * sizeof(u32);
-	audioBuffer = (u32*)linearAlloc(audioBufferSize);
-	if(audioBuffer == nullptr) {
-        audioCleanup();
-        return;
-    }
-	
-
-	ndspSetOutputMode(NDSP_OUTPUT_STEREO);
-
-	ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
-	ndspChnSetRate(0, SAMPLERATE);
-	ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
-
-	float mix[12];
-	memset(mix, 0, sizeof(mix));
-	mix[0] = 1.0;
-	mix[1] = 1.0;
-	ndspChnSetMix(0, mix);
-
-	memset(waveBuf,0,sizeof(waveBuf));
-	waveBuf[0].data_vaddr = &audioBuffer[0];
-	waveBuf[0].nsamples = SAMPLESPERBUF;
-	waveBuf[1].data_vaddr = &audioBuffer[SAMPLESPERBUF];
-	waveBuf[1].nsamples = SAMPLESPERBUF;
-
-
-	size_t stream_offset = 0;
-
-	//not sure if this is necessary? if it is, memset might be better?
-	init_fill_buffer(audioBuffer,stream_offset, SAMPLESPERBUF * 2);
-
-	stream_offset += SAMPLESPERBUF;
-
-	ndspChnWaveBufAdd(0, &waveBuf[0]);
-	ndspChnWaveBufAdd(0, &waveBuf[1]);
-
-	audioInitialized = true;
+	mm_stream mystream;
+	mystream.sampling_rate	= SAMPLERATE;
+	mystream.buffer_length	= SAMPLESPERBUF;
+	mystream.callback		= onStreamRequest;
+	mystream.format			= MM_STREAM_16BIT_MONO;
+	mystream.timer			= MM_TIMER0;
+	mystream.manual			= true;
+	mmStreamOpen(&mystream);
 }
-
-
-
 
 Host::Host() {
-    _logFilePrefix = "sdmc:/3ds/fake08/";
+	vramSetBankA(VRAM_A_MAIN_BG);
+	vramSetBankB(VRAM_B_MAIN_SPRITE);
+	vramSetBankC(VRAM_C_SUB_BG);
+	vramSetBankD(VRAM_D_SUB_SPRITE);
 
-    _cartDirectory = "/p8carts";
+	videoSetMode(MODE_5_2D);
+	videoSetModeSub(MODE_5_2D);
+	bgInit(3, BgType_Bmp8, BgSize_B8_128x128, 0, 0);
+	consoleInit(nullptr, 0, BgType_Text4bpp, BgSize_T_256x256, 0, 1, false, true);
 
-    struct stat st = {0};
+	if(!fatInitDefault()) {
+		printf("FAT init failed.\n");
 
-    int res = chdir("sdmc:/");
-    
-    if (res == 0 && stat("3ds", &st) == -1) {
-        res = mkdir("3ds", 0777);
-    }
-
-    if (res == 0 && stat(_logFilePrefix.c_str(), &st) == -1) {
-        res = mkdir(_logFilePrefix.c_str(), 0777);
-    }
-
-    string cartdatadir = _logFilePrefix + "cdata";
-    if (res == 0 && stat(cartdatadir.c_str(), &st) == -1) {
-        res = mkdir(cartdatadir.c_str(), 0777);
-    }
-	
-	string cartdir = "sdmc:" + _cartDirectory;
-	if (res == 0 && stat(cartdir.c_str(), &st) == -1) {
-        res = mkdir(cartdir.c_str(), 0777);
-    }
-	
- }
-
- void Host::setPlatformParams(
-        int windowWidth,
-        int windowHeight,
-        uint32_t sdlWindowFlags,
-        uint32_t sdlRendererFlags,
-        uint32_t sdlPixelFormat,
-        std::string logFilePrefix,
-        std::string customBiosLua,
-        std::string cartDirectory) {}
-
-
-void Host::oneTimeSetup(Audio* audio){
-    osSetSpeedupEnable(true);
-
-    stretch = StretchAndOverflow;
-
-    _audio = audio;
-    audioSetup();
-
-    Result res = cfguInit();
-	if (R_SUCCEEDED(res)) {
-		CFGU_GetSystemModel(&consoleModel);
-		cfguExit();
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+		}
 	}
 
-    gfxInitDefault();
-    gfxSetWide(consoleModel != 3);	
-    //C3D_Init(C3D_DEFAULT_CMDBUF_SIZE); default is 0x40000
-    C3D_Init(0x10000);
-	//C2D_Init(C2D_DEFAULT_MAX_OBJECTS); //4096
-    C2D_Init(32); //need very few objects? this probably doesn't really help perf
-	C2D_Prepare();
+	_logFilePrefix = "/_nds/fake08/";
 
-    topTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-    /*
-    topTarget = C3D_RenderTargetCreate(GSP_SCREEN_WIDTH, GSP_SCREEN_HEIGHT_TOP, GPU_RB_RGBA8, GPU_RB_DEPTH16);
-	if (topTarget) {
-		C3D_RenderTargetSetOutput(topTarget, GFX_TOP, GFX_LEFT,
-			GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
-			GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) |
-			GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO));
-    }
-    */
-    bottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-    
-    last_time = 0;
-    now_time = 0;
-    frame_time = 0;
-    targetFrameTimeMs = 0;
+	_cartDirectory = "/p8carts";
 
-    currKDown32 = 0;
-    currKHeld32 = 0;
+	int res = chdir("/");
 
-    for(int i = 0; i < 144; i++){
-        _rgba8Colors[i] = 0xFF | (_paletteColors[i].Blue << 8) | (_paletteColors[i].Green << 16) | (_paletteColors[i].Red << 24);
-        _rgb565Colors[i] = (((_paletteColors[i].Red & 0xf8)<<8) + ((_paletteColors[i].Green & 0xfc)<<3)+(_paletteColors[i].Blue>>3));
-    }
+	if (res == 0 && access("/_nds", F_OK) != 0) {
+		res = mkdir("/nds", 0777);
+	}
 
-    pico_tex = (C3D_Tex*)linearAlloc(sizeof(C3D_Tex));
-	//people on homebrew discord said should use this
-	C3D_TexInitVRAM(pico_tex, 128, 128, texColor);
-	//can't tell a difference, but I'd expect vram to be better? maybe not if transferring often
-	//C3D_TexInit(pico_tex, 128, 128, GPU_RGBA8);
-	C3D_TexSetFilter(pico_tex, GPU_NEAREST, GPU_NEAREST);
+	if (res == 0 && access(_logFilePrefix.c_str(), F_OK) != 0) {
+		res = mkdir(_logFilePrefix.substr(0, _logFilePrefix.size() - 1).c_str(), 0777);
+	}
 
-	pico_subtex = (Tex3DS_SubTexture*)linearAlloc(sizeof(Tex3DS_SubTexture));
-	pico_subtex->width = 128;
-	pico_subtex->height = 128;
-	pico_subtex->left = 0.0f;
-	pico_subtex->top = 1.0f;
-	pico_subtex->right = 1.0f;
-	pico_subtex->bottom = 0.0f;
+	std::string cartdatadir = _logFilePrefix + "cdata";
+	if (res == 0 && access(cartdatadir.c_str(), F_OK) != 0) {
+		res = mkdir(cartdatadir.c_str(), 0777);
+	}
 
-	pico_image.tex = pico_tex;
-	pico_image.subtex = pico_subtex;
-
-	pico_pixel_buffer = (u16*)linearAlloc(pico_pixel_buffer_size);
-
-    loadSettingsIni();
-
-    setRenderParamsFromStretch(stretch);
-
-    if (stretch == AltScreenPixelPerfect) {
-        mouseOffsetX = (__3ds_BottomScreenWidth - PicoScreenWidth) / 2;
-        mouseOffsetY = (__3ds_BottomScreenHeight - PicoScreenHeight) / 2;
-        scaleX = 1.0;
-        scaleY = 1.0;
-    }
-    else{
-        mouseOffsetX = (__3ds_BottomScreenWidth - __3ds_BottomScreenHeight) / 2;
-        mouseOffsetY = 0;
-        scaleX = 0.53;
-        scaleY = 0.53;
-    }
+	if (res == 0 && access(_cartDirectory.c_str(), F_OK) != 0) {
+		res = mkdir(_cartDirectory.c_str(), 0777);
+	}
 }
 
-void Host::oneTimeCleanup(){
-    saveSettingsIni();
+void Host::setPlatformParams(
+		int windowWidth,
+		int windowHeight,
+		uint32_t sdlWindowFlags,
+		uint32_t sdlRendererFlags,
+		uint32_t sdlPixelFormat,
+		std::string logFilePrefix,
+		std::string customBiosLua,
+		std::string cartDirectory) {}
 
-    audioCleanup();
 
-    C3D_TexDelete(pico_tex);
+void Host::oneTimeSetup(Audio* audio) {
+	stretch = PixelPerfect;
 
-	linearFree(pico_tex);
-	linearFree(pico_subtex);
-    linearFree(pico_pixel_buffer);
+	_audio = audio;
+	audioSetup();
 
-    C2D_Fini();
-	C3D_Fini();
-	gfxExit();
-}
+	for(int i = 0; i < 144; i++) {
+		_rgb555Colors[i] = lroundf(_paletteColors[i].Red * 31.0 / 255.0) | lroundf(_paletteColors[i].Green * 31 / 255) << 5 | lroundf(_paletteColors[i].Blue * 31 / 255) << 10;
+	}
 
-void Host::setTargetFps(int targetFps){
-    targetFrameTimeMs = 1000.0 / (float)targetFps;
-}
+	irqSet(IRQ_VBLANK, vblankHandler);
+	irqEnable(IRQ_VBLANK);
 
-void Host::changeStretch(){
-    if ((currKDown32 & KEY_SELECT) && resizekey == YesResize) {
-        if (stretch == PixelPerfect) {
-            stretch = StretchToFit;
-            mouseOffsetX = (__3ds_BottomScreenWidth - __3ds_BottomScreenHeight) / 2;
-            mouseOffsetY = 0;
-            scaleX = 0.53;
-            scaleY = 0.53;
-        }
-        else if (stretch == StretchToFit) {
-            stretch = StretchAndOverflow;
-            mouseOffsetX = (__3ds_BottomScreenWidth - __3ds_BottomScreenHeight) / 2;
-            mouseOffsetY = 0;
-            scaleX = 0.53;
-            scaleY = 0.53;
-        }
-        else if (stretch == StretchAndOverflow) {
-            stretch = AltScreenPixelPerfect;
-            mouseOffsetX = (__3ds_BottomScreenWidth - PicoScreenWidth) / 2;
-            mouseOffsetY = (__3ds_BottomScreenHeight - PicoScreenHeight) / 2;
-            scaleX = 1.0;
-            scaleY = 1.0;
-        }
-        else if (stretch == AltScreenPixelPerfect) {
-            stretch = AltScreenStretch;
-            mouseOffsetX = (__3ds_BottomScreenWidth - __3ds_BottomScreenHeight) / 2;
-            mouseOffsetY = 0;
-            scaleX = 0.53;
-            scaleY = 0.53;
-        }
-        else {
-            stretch = PixelPerfect;
-            mouseOffsetX = (__3ds_BottomScreenWidth - __3ds_BottomScreenHeight) / 2;
-            mouseOffsetY = 0;
-            scaleX = 0.53;
-            scaleY = 0.53;
-        }
+	loadSettingsIni();
 
-        setRenderParamsFromStretch(stretch);
+	mouseOffsetX = 64;
+	mouseOffsetY = 32;
+	scaleX = 1.0f;
+	scaleY = 1.0f;
 
-    }
-}
-
-void Host::forceStretch(StretchOption newStretch) {
 	setRenderParamsFromStretch(stretch);
 }
 
-InputState_t Host::scanInput(){
-    hidScanInput();
-
-    currKDown32 = hidKeysDown();
-    currKHeld32 = hidKeysHeld();
-
-    touchPosition touch;
-
-	//Read the touch screen coordinates
-	hidTouchRead(&touch);
-
-    if (touch.px > 0 && touch.py > 0) {
-        touchLocationX = (touch.px - mouseOffsetX) * scaleX;
-        touchLocationY = (touch.py - mouseOffsetY) * scaleY;
-        mouseBtnState = 1;
-    }
-    else {
-        mouseBtnState = 0;
-    }
-
-    return InputState_t {
-        ConvertInputToP8(currKDown32),
-        ConvertInputToP8(currKHeld32),
-        (int16_t)touchLocationX,
-        (int16_t)touchLocationY,
-        mouseBtnState
-    };
+void Host::oneTimeCleanup() {
+	saveSettingsIni();
 }
 
-bool Host::shouldQuit() {
-    bool lpressed = currKHeld32 & KEY_L;
-	bool rpressed = currKDown32 & KEY_R;
-
-	return lpressed && rpressed;
+void Host::setTargetFps(int fps) {
+	targetFps = fps;
 }
 
+void Host::waitForTargetFps() {
+	while (framesSinceWait < 60 / targetFps) {
+		swiWaitForVBlank();
+	}
 
-void Host::waitForTargetFps(){
-    now_time = svcGetSystemTick();
-    frame_time = now_time - last_time;
-	last_time = now_time;
+	framesSinceWait = 0;
+}
 
-	float frameTimeMs = frame_time / CPU_TICKS_PER_MSEC;
-
-	//sleep for remainder of time
-	if (frameTimeMs < targetFrameTimeMs) {
-		float msToSleep = targetFrameTimeMs - frameTimeMs;
-
-		svcSleepThread(msToSleep * 1000 * 1000);
-
-		last_time += CPU_TICKS_PER_MSEC * msToSleep;
+void Host::changeStretch() {
+	if ((kDown & KEY_SELECT) && resizekey == YesResize) {
+		switch(stretch) {
+			case PixelPerfect:
+			case PixelPerfectStretch:
+			case FourByThreeVertPerfect:
+				forceStretch(StretchToFit);
+				break;
+			case StretchToFit:
+			case FourByThreeStretch:
+				forceStretch(StretchToFill);
+				break;
+			case StretchToFill:
+				forceStretch(StretchAndOverflow);
+				break;
+			case StretchAndOverflow:
+				forceStretch(AltScreenPixelPerfect);
+				break;
+			case AltScreenPixelPerfect:
+				forceStretch(AltScreenStretch);
+				break;
+			case AltScreenStretch:
+				forceStretch(PixelPerfect);
+				break;
+		}
 	}
 }
 
+void Host::forceStretch(StretchOption newStretch) {
+	stretch = newStretch;
 
-void Host::drawFrame(uint8_t* picoFb, uint8_t* screenPaletteMap, uint8_t drawMode){
-    size_t pixIdx = 0;
+	switch(stretch) {
+		case PixelPerfect:
+		case PixelPerfectStretch:
+		case FourByThreeVertPerfect:
+			mouseOffsetX = 64;
+			mouseOffsetY = 32;
+			scaleX = 1.0f;
+			scaleY = 1.0f;
+			break;
+		case StretchToFit:
+		case FourByThreeStretch:
+			mouseOffsetX = 32;
+			mouseOffsetY = 0;
+			scaleX = 0.6701571f;
+			scaleY = 0.6666667f;
+			break;
+		case StretchToFill:
+			mouseOffsetX = 0;
+			mouseOffsetY = 0;
+			scaleX = 0.5f;
+			scaleY = 0.6666667f;
+			break;
+		case StretchAndOverflow:
+			mouseOffsetX = 0;
+			mouseOffsetY = -64;
+			scaleX = 0.5f;
+			scaleY = 0.5f;
+			break;
+		case AltScreenPixelPerfect:
+			mouseOffsetX = 64;
+			mouseOffsetY = 32;
+			scaleX = 1.0f;
+			scaleY = 1.0f;
+			break;
+		case AltScreenStretch:
+			mouseOffsetX = 32;
+			mouseOffsetY = 0;
+			scaleX = 0.6701571f;
+			scaleY = 0.6666667f;
+			break;
+	}
 
-    for (pixIdx = 0; pixIdx < pico_pixel_buffer_size; pixIdx++){
-        pico_pixel_buffer[pixIdx] = _rgb565Colors[screenPaletteMap[getPixelNibble(pixIdx % 128, pixIdx / 128, picoFb)]];
-    }
-
-    //not sure if this is necessary?
-    GSPGPU_FlushDataCache(pico_pixel_buffer, pico_pixel_buffer_size);
-
-	C3D_SyncDisplayTransfer(
-        (u32*)pico_pixel_buffer, GX_BUFFER_DIM(128, 128),
-        (u32*)(pico_tex->data), GX_BUFFER_DIM(128, 128),
-		(GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(1) | GX_TRANSFER_RAW_COPY(0) |
-        GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGB565) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB565) |
-        GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
-    );
-
-    screenModeScaleX = 1.0f;
-    screenModeScaleY = 1.0f;
-    screenModeAngle = 0;
-    flipHorizontal = 1;
-    flipVertical = 1;
-
-    switch(drawMode){
-        case 1:
-            screenModeScaleX = 2.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 0;
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        case 2:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 2.0f;
-            screenModeAngle = 0;
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        case 3:
-            screenModeScaleX = 2.0f;
-            screenModeScaleY = 2.0f;
-            screenModeAngle = 0;
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        //todo: mirroring- not sure how to do this?
-        //case 5,6,7
-
-        case 129:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 0;
-            flipHorizontal = -1;
-            flipVertical = 1;
-            break;
-        case 130:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 0;
-            flipHorizontal = 1;
-            flipVertical = -1;
-            break;
-        case 131:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 0;
-            flipHorizontal = -1;
-            flipVertical = -1;
-            break;
-        case 133:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 1.5707963267949f; // pi / 2 (90 degrees)
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        case 134:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 3.1415926535898f; //pi (180 degrees)
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        case 135:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 4.7123889803847f; // pi * 3 / 2 (270 degrees)
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-        default:
-            screenModeScaleX = 1.0f;
-            screenModeScaleY = 1.0f;
-            screenModeAngle = 0;
-            flipHorizontal = 1;
-            flipVertical = 1;
-            break;
-    }
-
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-
-		C2D_TargetClear(topTarget, CLEAR_COLOR);
-		C2D_SceneBegin(topTarget);
-
-        if (topSubTexWidth > 0 && topSubTexHeight > 0) {
-            pico_subtex->width = topSubTexWidth;
-            pico_subtex->height = topSubTexHeight;
-            pico_subtex->left = 0.0f / screenModeScaleX;
-            //top and bottom are inverted from what I usually expect
-            pico_subtex->top = 1.0f - (0.0f / screenModeScaleY);
-            pico_subtex->right = 1.0f / screenModeScaleX;
-            pico_subtex->bottom = 1.0f - (1.0f / screenModeScaleY);
-
-            /*
-            C2D_DrawImageAt(
-                pico_image,
-                topXOffset,
-                topYOffset,
-                .5,
-                NULL,
-                topScaleX * screenModeScaleX,
-                topScaleY * screenModeScaleY);
-                */
-
-            //drawimageatrotated coord is center of image, drawimageage coord is top left
-            C2D_DrawImageAtRotated(
-                pico_image,
-                200 + topXOffset,
-                120 + topYOffset,
-                .5,
-                screenModeAngle,
-                NULL,
-                flipHorizontal,
-                flipVertical);
-        }
-
-        
-        C2D_TargetClear(bottomTarget, CLEAR_COLOR);
-        C2D_SceneBegin(bottomTarget);
-
-        if (bottomSubTexWidth > 0 && bottomSubTexHeight > 0) {
-            pico_subtex->width = bottomSubTexWidth;
-            pico_subtex->height = bottomSubTexHeight;
-            pico_subtex->left = 0.0f / screenModeScaleX;
-            //top and bottom are inverted from what I usually expect
-            pico_subtex->top = 1.0f - (0.0f / screenModeScaleY);
-            pico_subtex->right = 1.0f / screenModeScaleX;
-            pico_subtex->bottom = 1.0f - (1.0f / screenModeScaleY);
-
-/*
-            C2D_DrawImageAt(
-                pico_image,
-                bottomXOffset,
-                bottomYOffset,
-                .5,
-                NULL,
-                1,
-                1);
-                */
-
-            C2D_DrawImageAtRotated(
-                pico_image,
-                160 + bottomXOffset,
-                120 + bottomYOffset,
-                .5,
-                screenModeAngle,
-                NULL,
-                flipHorizontal,
-                flipVertical);
-        }
-		
-		//keyboard goes here probably
-
-		C2D_Flush();
-
-	C3D_FrameEnd(0);
+	setRenderParamsFromStretch(stretch);
 }
 
-bool Host::shouldFillAudioBuff(){
-    return waveBuf[fillBlock].status == NDSP_WBUF_DONE;
+InputState_t Host::scanInput() {
+	scanKeys();
+
+	kDown = keysDown();
+	kHeld = keysHeld();
+
+	touchPosition touch;
+
+	//Read the touch screen coordinates
+	touchRead(&touch);
+
+	if (touch.px > 0 && touch.py > 0) {
+		touchX = (touch.px - mouseOffsetX) * scaleX;
+		touchY = (touch.py - mouseOffsetY) * scaleY;
+		mouseBtnState = 1;
+	} else {
+		mouseBtnState = 0;
+	}
+
+	return InputState_t {
+		ConvertInputToP8(kDown),
+		ConvertInputToP8(kHeld),
+		(int16_t)touchX,
+		(int16_t)touchY,
+		mouseBtnState
+	};
 }
 
-void* Host::getAudioBufferPointer(){
-    return waveBuf[fillBlock].data_pcm16;
+bool Host::shouldQuit() {
+	u32 keys = KEY_L | KEY_R;
+
+	return (kHeld & keys) == keys;
 }
 
-size_t Host::getAudioBufferSize(){
-    return waveBuf[fillBlock].nsamples;
+void Host::drawFrame(uint8_t* picoFb, uint8_t* screenPaletteMap, uint8_t drawMode) {
+	for(int i = 0; i < 16; i++) {
+		BG_PALETTE[i] = _rgb555Colors[screenPaletteMap[i]];
+	}
+
+	// dmaCopyWordsAsynch(0, screenPaletteMap, BG_PALETTE, 256 * 2);
+
+	// dmaCopyWordsAsynch(1, picoFb, bgGetGfxPtr(0), PicoFbLength);
+
+	u16 *dst = BG_GFX;
+	for (int i = 0; i < PicoFbLength * 2; i++) {
+		u16 val = getPixelNibble(i % 128, i / 128, picoFb);
+		i++;
+		val |= getPixelNibble(i % 128, i / 128, picoFb) << 8;
+		*(dst++) = val;
+	}
+
+	// switch(drawMode) {
+	// 	case 1:
+	// 		screenModeScaleX = 2.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	case 2:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 2.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	case 3:
+	// 		screenModeScaleX = 2.0f;
+	// 		screenModeScaleY = 2.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	//todo: mirroring- not sure how to do this?
+	// 	//case 5,6,7
+
+	// 	case 129:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = -1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	case 130:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = 1;
+	// 		flipVertical = -1;
+	// 		break;
+	// 	case 131:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = -1;
+	// 		flipVertical = -1;
+	// 		break;
+	// 	case 133:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 1.5707963267949f; // pi / 2 (90 degrees)
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	case 134:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 3.1415926535898f; //pi (180 degrees)
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	case 135:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 4.7123889803847f; // pi * 3 / 2 (270 degrees)
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// 	default:
+	// 		screenModeScaleX = 1.0f;
+	// 		screenModeScaleY = 1.0f;
+	// 		screenModeAngle = 0;
+	// 		flipHorizontal = 1;
+	// 		flipVertical = 1;
+	// 		break;
+	// }
 }
 
-void Host::playFilledAudioBuffer(){
-    DSP_FlushDataCache(waveBuf[fillBlock].data_pcm16, waveBuf[fillBlock].nsamples);
-
-	ndspChnWaveBufAdd(0, &waveBuf[fillBlock]);
-
-	fillBlock = !fillBlock;
+bool Host::shouldFillAudioBuff() {
+	return false;
 }
 
-bool Host::shouldRunMainLoop(){
-    return aptMainLoop();
+void *Host::getAudioBufferPointer() {
+	return nullptr;
 }
 
-vector<string> Host::listcarts(){
-    vector<string> carts;
+size_t Host::getAudioBufferSize() {
+	return 0;
+}
 
-    //force to SD card root
-    chdir("sdmc:/");
+void Host::playFilledAudioBuffer() { }
 
-    DIR* dir = opendir(_cartDirectory.c_str());
-    struct dirent *ent;
+bool Host::shouldRunMainLoop() {
+	if(audiochannels > 0)
+		mmStreamUpdate();
+	return true;
+}
 
-    if (dir) {
-        /* print all the files and directories within directory */
-        while ((ent = readdir (dir)) != NULL) {
-            if (isCartFile(ent->d_name)){
-                carts.push_back(_cartDirectory + "/" + ent->d_name);
-            }
-        }
-        closedir (dir);
-    }
-    
-    return carts;
+std::vector<std::string> Host::listcarts() {
+	std::vector<std::string> carts;
+
+	chdir("/");
+
+	DIR* dir = opendir(_cartDirectory.c_str());
+	struct dirent *ent;
+
+	if (dir) {
+		while ((ent = readdir (dir)) != NULL) {
+			if (isCartFile(ent->d_name)) {
+				carts.push_back(_cartDirectory + "/" + ent->d_name);
+			}
+		}
+		closedir (dir);
+	}
+
+	return carts;
 }
 
 const char* Host::logFilePrefix() {
-    return "";
+	return "";
 }
 
 std::string Host::customBiosLua() {
-    return "";
+	return "";
 }
 
 std::string Host::getCartDirectory() {
-    return _cartDirectory;
+	return _cartDirectory;
 }

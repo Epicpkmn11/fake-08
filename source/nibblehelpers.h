@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-
 //for 1 byte (8 bit) indexes, 128x64
 //should be the equivalent of return y * 64 + (x / 2);
 #define COMBINED_IDX(x, y) ((y) << 6) | ((x) >> 1)
@@ -15,6 +13,15 @@
 
 int getCombinedIdx(int x, int y);
 
-void setPixelNibble(const int x, const int y, uint8_t value, uint8_t* targetBuffer);
+inline void setPixelNibble(const int x, const int y, uint8_t value, uint8_t* targetBuffer) {
+	//potentially slightly optimized by inlining - don't have measurements to back it up
+	targetBuffer[COMBINED_IDX(x, y)] = (BITMASK(0) & x)
+		? (targetBuffer[COMBINED_IDX(x, y)] & 0x0f) | (value << 4 & 0xf0)
+		: (targetBuffer[COMBINED_IDX(x, y)] & 0xf0) | (value & 0x0f);
+}
 
-uint8_t getPixelNibble(const int x, const int y, const uint8_t* targetBuffer);
+inline uint8_t getPixelNibble(const int x, const int y, const uint8_t* targetBuffer) {
+	return (BITMASK(0) & x) 
+		? targetBuffer[COMBINED_IDX(x, y)] >> 4  //just last 4 bits
+		: targetBuffer[COMBINED_IDX(x, y)] & 0x0f; //just first 4 bits
+}

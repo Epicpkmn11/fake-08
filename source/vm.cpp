@@ -77,7 +77,7 @@ Vm::Vm(
     _input = input;
 
     if (audio == nullptr) {
-        audio = new Audio(_memory);
+        audio = new Audio(_memory, host->getSetting("audiochannels"));
         _cleanupDeps = true;
     }
     _audio = audio;
@@ -667,6 +667,8 @@ void Vm::GameLoop() {
 
             _host->playFilledAudioBuffer();
         }
+
+        _audio->setChannels(_host->getSetting("audiochannels"));
     }
 }
 

@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include "fix32.h"
+
 namespace z8
 {
 
@@ -34,17 +36,16 @@ public:
         INST_PHASER     = 7,
     };
 
-    static float waveform(int instrument, float advance);
+    static fix32 waveform(int instrument, fix32 advance);
 
     //These are inline so they don't have to be declared in the class
     //c++17 allows this, but if need for c++11 "inline" can be removed and they
     //can be declared in synth.cpp
     //also not threadsafe, but this is all single threaded anyway
     private:
-        inline static float lastadvance;
-        inline static float sample;
-        inline static float lsample;
-        
+        inline static fix32 lastadvance;
+        inline static fix32 sample;
+        inline static fix32 lsample;
 };
 
 } // namespace z8

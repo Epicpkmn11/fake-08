@@ -24,7 +24,12 @@ std::string defaultIni =
 "resizekey = 1\n"
 "kbmode = 0\n"
 "menustyle = 0\n"
-"bgcolor = 0\n";
+"bgcolor = 0\n"
+#ifdef _NDS
+"audiochannels = 1\n";
+#else
+"audiochannels = 4\n";
+#endif
 
 void Host::setUpPaletteColors(){
     _paletteColors[0] = COLOR_00;
@@ -164,6 +169,11 @@ void Host::loadSettingsIni(){
 	//bgcolor
 	long bgcolorSetting = settingsIni.GetLongValue("settings", "bgcolor", (long)Gray);
 	bgcolor = (BgColorOption) bgcolorSetting;
+	
+	//audiochannels
+	long audiochannelsSetting = settingsIni.GetLongValue("settings", "audiochannels", audiochannels);
+	if(audiochannelsSetting >= 0 && audiochannelsSetting <= 4)
+		audiochannels = audiochannelsSetting;
 }
 
 void Host::saveSettingsIni(){
@@ -180,6 +190,8 @@ void Host::saveSettingsIni(){
     settingsIni.SetLongValue("settings", "kbmode", kbmode);
     settingsIni.SetLongValue("settings", "menustyle", menustyle);
     settingsIni.SetLongValue("settings", "bgcolor", bgcolor);
+
+    settingsIni.SetLongValue("settings", "audiochannels", audiochannels);
 	
     std::string settingsIniStr = "";
     settingsIni.Save(settingsIniStr, false);
@@ -258,6 +270,9 @@ int Host::getSetting(std::string sname) {
 		}else{
 			return 7;
 		}
+	}else if(sname == "audiochannels"){
+		Logger_Write("Returning audio channel count setting\n");
+		return audiochannels;
 	}else{
 		Logger_Write("Setting ");
 		Logger_Write(sname.c_str());
@@ -292,6 +307,10 @@ void Host::setSetting(std::string sname, int sval) {
 	}else if(sname == "bgcolor"){
 		Logger_Write("setting bgcolor\n");
 		bgcolor = (BgColorOption) sval;
+		
+	}else if(sname == "audiochannels"){
+		Logger_Write("setting audiochannels\n");
+		audiochannels = sval;
 		
 	}else if(sname == "packinloaded"){
 		Logger_Write("setting packinloaded\n");

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <cstring> 
+#include "fix32.h"
+
+#include <cstring>
 #include <string>
 
 /*
@@ -83,20 +85,20 @@ struct note {
     }
 
 
-    uint8_t getKey()const {
+    uint_fast8_t getKey()const {
         return (data[0] & 0b00111111);
     }
-    uint8_t getWaveform()const {
+    uint_fast8_t getWaveform()const {
         //waveform spans both bytes
         return ((data[1] & 0b00000001) << 2) + ((data[0] & 0b11000000) >> 6);
     }
-    uint8_t getVolume()const {
+    uint_fast8_t getVolume()const {
         return ((data[1] & 0b00001110) >> 1);
     }
-    uint8_t getEffect()const {
+    uint_fast8_t getEffect()const {
         return ((data[1] & 0b01110000) >> 4);
     }
-    uint8_t getCustom()const {
+    uint_fast8_t getCustom()const {
         return ((data[1] & 0b10000000) >> 7);
     }
 };
@@ -119,25 +121,25 @@ struct sfx {
 };
 
 struct musicChannel {
-    int16_t count = 0;
-    int16_t pattern = -1;
-    int8_t master = -1;
-    uint8_t mask = 0xf;
-    uint8_t speed = 0;
-    float volume = 0.f;
-    float volume_step = 0.f;
-    float offset = 0.f;
-	uint8_t length = 0;
+    int_fast16_t count = 0;
+    int_fast16_t pattern = -1;
+    int_fast8_t master = -1;
+    uint_fast8_t mask = 0xf;
+    uint_fast8_t speed = 0;
+    z8::fix32 volume = 0;
+    z8::fix32 volume_step = 0;
+    z8::fix32 offset = 0;
+	z8::fix32 length = 0;
 };
 
 struct sfxChannel {
-    int16_t sfxId = -1;
-    float offset = 0;
-    float phi = 0;
+    int_fast16_t sfxId = -1;
+    z8::fix32 offset = 0;
+    z8::fix32 phi = 0;
     bool can_loop = true;
     bool is_music = false;
-    int8_t prev_key = 0;
-    float prev_vol = 0;
+    int_fast8_t prev_key = 0;
+    z8::fix32 prev_vol = 0;
 };
 
 struct audioState {

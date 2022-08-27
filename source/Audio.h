@@ -89,13 +89,14 @@ enum
 class Audio {
     PicoRam* _memory;
     audioState _audioState;
+    int _numChannels;
 
     int16_t getSampleForChannel(int channel);
 
     void set_music_pattern(int pattern);
     
     public:
-    Audio(PicoRam* memory);
+    Audio(PicoRam* memory, int numChannels);
 
     void resetAudioState();
     audioState* getAudioState();
@@ -111,5 +112,7 @@ class Audio {
 
     void FillAudioBuffer(void *audioBuffer,size_t offset, size_t size);
     void FillMonoAudioBuffer(void *audioBuffer,size_t offset, size_t size);
+
+    void setChannels(int numChannels) { _numChannels = numChannels; }
 };
 

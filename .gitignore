@@ -4,6 +4,8 @@
 *.bnr
 *.cia
 
+*.nds
+
 *.nacp
 *.nro
 *.nso
