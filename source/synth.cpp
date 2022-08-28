@@ -18,9 +18,6 @@
 namespace z8
 {
 
-#ifdef _NDS
-__attribute__((section(".itcm"), long_call))
-#endif
 fix32 synth::waveform(int instrument, fix32 advance)
 {
     //const from picolove:

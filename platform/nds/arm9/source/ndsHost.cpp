@@ -5,24 +5,16 @@
 
 
 #include <dirent.h>
-#include <errno.h>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-
-#include <fstream>
-#include <iostream>
 
 
-#include "../../../source/host.h"
-#include "../../../source/hostVmShared.h"
-#include "../../../source/nibblehelpers.h"
-#include "../../../source/PicoRam.h"
-#include "../../../source/filehelpers.h"
+#include "../../../../source/host.h"
+#include "../../../../source/hostVmShared.h"
+#include "../../../../source/nibblehelpers.h"
+#include "../../../../source/PicoRam.h"
+#include "../../../../source/filehelpers.h"
 
-#define SAMPLERATE 22050
-#define SAMPLESPERBUF (SAMPLERATE / 30)
+#define SAMPLERATE (22050)
+#define SAMPLESPERBUF (800)
 
 const int PicoScreenWidth = 128;
 const int PicoScreenHeight = 128;
@@ -37,7 +29,8 @@ u16 touchX;
 u16 touchY;
 uint8_t mouseBtnState;
 
-Audio* _audio;
+Audio *_audio;
+u32 *waveBuffer, *workBuffer;
 uint16_t _rgb555Colors[144];
 int targetFps = 60;
 
@@ -113,11 +106,6 @@ void setRenderParamsFromStretch(StretchOption stretch) {
 	}
 }
 
-mm_word onStreamRequest(mm_word length, mm_addr dest, mm_stream_formats format) {
-	_audio->FillMonoAudioBuffer(dest, 0, length);
-	return length;
-}
-
 void audioSetup() {
 	mm_ds_system sys;
 	sys.mod_count 			= 0;
@@ -126,15 +114,17 @@ void audioSetup() {
 	sys.fifo_channel		= FIFO_MAXMOD;
 	mmInit(&sys);
 
-	mm_stream mystream;
-	mystream.sampling_rate	= SAMPLERATE;
-	mystream.buffer_length	= SAMPLESPERBUF;
-	mystream.callback		= onStreamRequest;
-	mystream.format			= MM_STREAM_16BIT_MONO;
-	mystream.timer			= MM_TIMER0;
-	mystream.manual			= true;
-	mmStreamOpen(&mystream);
+	// Tell ARM 7 we're ready for audio
+	waveBuffer = new u32[SAMPLESPERBUF];
+	workBuffer = new u32[SAMPLESPERBUF];
+	fifoSendAddress(FIFO_USER_01, _audio);
+	fifoSendAddress(FIFO_USER_01, waveBuffer);
+	fifoSendAddress(FIFO_USER_01, workBuffer);
 }
+
+// void fifoPrinter(u32 value32, void *userdata) {
+// 	printf("7=>%lX\n", value32);
+// }
 
 Host::Host() {
 	vramSetBankA(VRAM_A_MAIN_BG);
@@ -152,9 +142,10 @@ Host::Host() {
 
 		while(1) {
 			swiWaitForVBlank();
-			scanKeys();
 		}
 	}
+
+	chdir(isDSiMode() ? "sd:/" : "fat:/"); // todo
 
 	_logFilePrefix = "/_nds/fake08/";
 
@@ -178,6 +169,8 @@ Host::Host() {
 	if (res == 0 && access(_cartDirectory.c_str(), F_OK) != 0) {
 		res = mkdir(_cartDirectory.c_str(), 0777);
 	}
+
+	// fifoSetValue32Handler(FIFO_USER_01, fifoPrinter, nullptr); // debug
 }
 
 void Host::setPlatformParams(
@@ -191,7 +184,7 @@ void Host::setPlatformParams(
 		std::string cartDirectory) {}
 
 
-void Host::oneTimeSetup(Audio* audio) {
+void Host::oneTimeSetup(Audio *audio) {
 	stretch = PixelPerfect;
 
 	_audio = audio;
@@ -215,6 +208,9 @@ void Host::oneTimeSetup(Audio* audio) {
 }
 
 void Host::oneTimeCleanup() {
+	delete[] waveBuffer;
+	delete[] workBuffer;
+
 	saveSettingsIni();
 }
 
@@ -449,8 +445,6 @@ size_t Host::getAudioBufferSize() {
 void Host::playFilledAudioBuffer() { }
 
 bool Host::shouldRunMainLoop() {
-	if(audiochannels > 0)
-		mmStreamUpdate();
 	return true;
 }
 
@@ -463,12 +457,12 @@ std::vector<std::string> Host::listcarts() {
 	struct dirent *ent;
 
 	if (dir) {
-		while ((ent = readdir (dir)) != NULL) {
+		while ((ent = readdir(dir)) != NULL) {
 			if (isCartFile(ent->d_name)) {
 				carts.push_back(_cartDirectory + "/" + ent->d_name);
 			}
 		}
-		closedir (dir);
+		closedir(dir);
 	}
 
 	return carts;

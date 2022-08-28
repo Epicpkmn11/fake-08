@@ -27,29 +27,29 @@ struct song {
     // The four song channels that should play, 0…63 (each msb holds a flag)
     uint8_t data[4];
 
-    uint8_t getSfx0()const {
+    inline uint_fast8_t getSfx0()const {
         return (data[0] & 0b01111111);
     }
-    uint8_t getSfx1()const {
+    inline uint_fast8_t getSfx1()const {
         return (data[1] & 0b01111111);
     }
-    uint8_t getSfx2()const {
+    inline uint_fast8_t getSfx2()const {
         return (data[2] & 0b01111111);
     }
-    uint8_t getSfx3()const {
+    inline uint_fast8_t getSfx3()const {
         return (data[3] & 0b01111111);
     }
 
-    uint8_t getStart()const {
+    inline uint_fast8_t getStart()const {
         return (data[0] & 0b10000000) >> 7;
     }
-    uint8_t getLoop()const {
+    inline uint_fast8_t getLoop()const {
         return (data[1] & 0b10000000) >> 7;
     }
-    uint8_t getStop()const {
+    inline uint_fast8_t getStop()const {
         return (data[2] & 0b10000000) >> 7;
     }
-    uint8_t getMode()const {
+    inline uint_fast8_t getMode()const {
         return (data[3] & 0b10000000) >> 7;
     }
 };
@@ -85,20 +85,20 @@ struct note {
     }
 
 
-    uint_fast8_t getKey()const {
+    inline uint_fast8_t getKey()const {
         return (data[0] & 0b00111111);
     }
-    uint_fast8_t getWaveform()const {
+    inline uint_fast8_t getWaveform()const {
         //waveform spans both bytes
         return ((data[1] & 0b00000001) << 2) + ((data[0] & 0b11000000) >> 6);
     }
-    uint_fast8_t getVolume()const {
+    inline uint_fast8_t getVolume()const {
         return ((data[1] & 0b00001110) >> 1);
     }
-    uint_fast8_t getEffect()const {
+    inline uint_fast8_t getEffect()const {
         return ((data[1] & 0b01110000) >> 4);
     }
-    uint_fast8_t getCustom()const {
+    inline uint_fast8_t getCustom()const {
         return ((data[1] & 0b10000000) >> 7);
     }
 };

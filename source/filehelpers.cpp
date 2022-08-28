@@ -1,60 +1,47 @@
 #include <string>
-#include <fstream>
 #include <vector>
 
-//http://insanecoding.blogspot.com/2011/11/how-to-read-in-file-in-c.html
-std::string get_file_contents(std::string filename){
-    std::ifstream in(filename, std::ios::in | std::ios::binary);
+std::string get_file_contents(const std::string &filename){
+    FILE *in = fopen(filename.c_str(), "rb");
     if (in)
     {
         std::string contents;
-        in.seekg(0, std::ios::end);
-        contents.resize(in.tellg());
-        in.seekg(0, std::ios::beg);
-        in.read(&contents[0], contents.size());
-        in.close();
-        return(contents);
+        fseek(in, 0, SEEK_END);
+        contents.resize(ftell(in));
+        fseek(in, 0, SEEK_SET);
+        fread(contents.data(), 1, contents.size(), in);
+        fclose(in);
+        return contents;
     }
 
   return "";
 }
 
-std::string get_first_four_chars(std::string filename){
-    std::ifstream in(filename, std::ios::in | std::ios::binary);
+std::string get_first_four_chars(const std::string &filename){
+    FILE *in = fopen(filename.c_str(), "rb");
     if (in)
     {
         std::string contents;
-        in.seekg(0, std::ios::end);
-        int fileLength = in.tellg();
+        fseek(in, 0, SEEK_END);
+        int fileLength = ftell(in);
         int bufSize = 4 < fileLength ? 4 : fileLength;
         contents.resize(bufSize);
-        in.seekg(0, std::ios::beg);
-        in.read(&contents[0], bufSize);
-        in.close();
-        return(contents);
+        fseek(in, 0, SEEK_SET);
+        fread(contents.data(), 1, contents.size(), in);
+        fclose(in);
+        return contents;
     }
 
   return "";
-}
-
-//https://stackoverflow.com/questions/5420317/reading-and-writing-binary-file
-std::vector<unsigned char> get_file_buffer(std::string filename){
-  std::ifstream in(filename, std::ios::binary);
-
-  std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(in), {});
-
-  return buffer;
 }
 
 //https://stackoverflow.com/a/8518855
-std::string getDirectory(const std::string& fname){
-     size_t pos = fname.find_last_of("\\/");
-     return (std::string::npos == pos)
-         ? ""
-         : fname.substr(0, pos);
+std::string getDirectory(const std::string &fname){
+     size_t pos = fname.find_last_of('/');
+     return (std::string::npos == pos) ? "" : fname.substr(0, pos);
 }
 
-bool isAbsolutePath (std::string const &path) {
+bool isAbsolutePath(std::string const &path) {
     if (path.length() == 0) {
         return false;
     }
@@ -73,14 +60,12 @@ bool isAbsolutePath (std::string const &path) {
     return false;
 }
 
-std::string getFileExtension(std::string const &path) {
-    size_t pos = path.find_last_of(".");
-     return (std::string::npos == pos)
-         ? ""
-         : path.substr(pos);
+std::string getFileExtension(const std::string &path) {
+    size_t pos = path.find_last_of('.');
+     return (std::string::npos == pos) ? "" : path.substr(pos);
 }
 
-bool hasEnding (std::string const &fullString, std::string const &ending) {
+bool hasEnding(std::string const &fullString, const std::string &ending) {
     if (fullString.length() >= ending.length()) {
         return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
     } else {
@@ -88,21 +73,21 @@ bool hasEnding (std::string const &fullString, std::string const &ending) {
     }
 }
 
-bool isHiddenFile (std::string const &fullString) {
+bool isHiddenFile(const std::string &fullString) {
     if (fullString.length() >= 0) {
-        return (0 == fullString.compare (0, 2, "._"));
+        return (0 == fullString.compare(0, 2, "._"));
     } else {
         return false;
     }
 }
 
-bool isCartFile (std::string const &fullString) {
-    return !isHiddenFile(fullString) && 
+bool isCartFile(const std::string &fullString) {
+    return !isHiddenFile(fullString) &&
         (hasEnding(fullString, ".p8") || hasEnding(fullString, ".png"));
 }
 
-bool isCPostFile (std::string const &fullString) {
-    return !isHiddenFile(fullString) && 
-       fullString.rfind("cpost", 0) == 0;
+bool isCPostFile(const std::string &fullString) {
+    return !isHiddenFile(fullString) &&
+        fullString.rfind("cpost", 0) == 0;
 }
 

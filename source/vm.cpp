@@ -6,9 +6,6 @@
 #include <algorithm>
 
 #include <string.h>
-#include <sstream>
-#include <iostream>
-#include <iomanip>
 #include <ctime>
 
 #include "vm.h"
@@ -77,7 +74,7 @@ Vm::Vm(
     _input = input;
 
     if (audio == nullptr) {
-        audio = new Audio(_memory, host->getSetting("audiochannels"));
+        audio = new Audio(_memory);
         _cleanupDeps = true;
     }
     _audio = audio;

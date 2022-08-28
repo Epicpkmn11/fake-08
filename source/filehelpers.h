@@ -1,19 +1,19 @@
 #include <string>
 
-std::string get_file_contents(std::string filename);
+std::string get_file_contents(const std::string &filename);
 
-std::string get_first_four_chars(std::string filename);
+std::string get_first_four_chars(const std::string &filename);
 
-std::string getDirectory(const std::string& fname);
+std::string getDirectory(const std::string &fname);
 
-bool hasEnding (std::string const &fullString, std::string const &ending);
+bool hasEnding (const std::string &fullString, const std::string &ending);
 
-bool isCartFile (std::string const &fullString);
+bool isCartFile (const std::string &fullString);
 
-bool isCPostFile (std::string const &fullString);
+bool isCPostFile (const std::string &fullString);
 
-bool isHiddenFile (std::string const &fullString);
+bool isHiddenFile (const std::string &fullString);
 
-bool isAbsolutePath (std::string const &path);
+bool isAbsolutePath (const std::string &path);
 
-std::string getFileExtension(std::string const &path);
+std::string getFileExtension(const std::string &path);

@@ -1,7 +1,10 @@
 #include "Audio.h"
 #include "synth.h"
-#include "hostVmShared.h"
 #include "mathhelpers.h"
+
+#ifdef ARM9
+#include <nds/arm9/cache.h>
+#endif
 
 using z8::fix32;
 
@@ -9,14 +12,17 @@ using z8::fix32;
 //playback implemenation based on zetpo 8's
 //https://github.com/samhocevar/zepto8/blob/master/src/pico8/sfx.cpp
 
-Audio::Audio(PicoRam* memory, int numChannels){
-    _numChannels = numChannels;
+Audio::Audio(PicoRam* memory){
     _memory = memory;
-    
+
     resetAudioState();
 }
 
 void Audio::resetAudioState() {
+#ifdef ARM9
+    DC_InvalidateRange(&_audioState, sizeof(audioState));
+#endif
+
     for(int i = 0; i < _numChannels; i++) {
         _audioState._sfxChannels[i].sfxId = -1;
         _audioState._sfxChannels[i].offset = 0;
@@ -34,13 +40,24 @@ void Audio::resetAudioState() {
     _audioState._musicChannel.volume = 0;
     _audioState._musicChannel.volume_step = 0;
     _audioState._musicChannel.offset = 0;
+
+#ifdef ARM9
+    DC_FlushRange(&_audioState, sizeof(audioState));
+#endif
 }
 
 audioState* Audio::getAudioState() {
+#ifdef ARM9
+    DC_InvalidateRange(&_audioState, sizeof(audioState));
+#endif
+
     return &_audioState;
 }
 
 void Audio::api_sfx(int sfx, int channel, int offset){
+#ifdef ARM9
+    DC_InvalidateRange(&_audioState, sizeof(audioState));
+#endif
 
     if (sfx < -2 || sfx > 63 || channel < -1 || channel > 3 || offset > 31) {
         return;
@@ -106,11 +123,19 @@ void Audio::api_sfx(int sfx, int channel, int offset){
         // so I assume this is the default value for “previous key”.
         _audioState._sfxChannels[channel].prev_key = 24;
         // There is no default value for “previous volume”.
-        _audioState._sfxChannels[channel].prev_vol = 0.f;
-    }      
+        _audioState._sfxChannels[channel].prev_vol = 0;
+    }
+
+#ifdef ARM9
+    DC_FlushRange(&_audioState, sizeof(audioState));
+#endif
 }
 
 void Audio::api_music(int pattern, int16_t fade_len, int16_t mask){
+#ifdef ARM9
+    DC_InvalidateRange(&_audioState, sizeof(audioState));
+#endif
+
     if (pattern < -1 || pattern > 63) {
         return;
     }
@@ -135,6 +160,10 @@ void Audio::api_music(int pattern, int16_t fade_len, int16_t mask){
     }
 
     set_music_pattern(pattern);
+
+#ifdef ARM9
+    DC_FlushRange(&_audioState, sizeof(audioState));
+#endif
 }
 
 void Audio::set_music_pattern(int pattern) {
@@ -142,7 +171,7 @@ void Audio::set_music_pattern(int pattern) {
     _audioState._musicChannel.offset = 0;
 
     //array to access song's channels. may be better to have this part of the struct?
-    uint8_t channels[] = {
+    uint_fast8_t channels[] = {
         _memory->songs[pattern].getSfx0(),
         _memory->songs[pattern].getSfx1(),
         _memory->songs[pattern].getSfx2(),
@@ -155,7 +184,7 @@ void Audio::set_music_pattern(int pattern) {
 	_audioState._musicChannel.length = 32; //as far as i can tell, there is no way to make an sfx longer than 32.
     for (int i = 0; i < _numChannels; ++i)
     {
-        uint8_t n = channels[i];
+        uint_fast8_t n = channels[i];
 
         if (n & 0x40)
             continue;
@@ -178,7 +207,7 @@ void Audio::set_music_pattern(int pattern) {
         if (((1 << i) & _audioState._musicChannel.mask) == 0)
             continue;
 
-        uint8_t n = channels[i];
+        uint_fast8_t n = channels[i];
         if (n & 0x40)
             continue;
 
@@ -229,11 +258,6 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
     }
 }
 
-static fix32 key_to_freq(uint_fast8_t key)
-{
-    return fix32(440) * (fix32(1) << (((int)key - 33) / 12));
-}
-
 int16_t Audio::getCurrentSfxId(int channel){
     return _audioState._sfxChannels[channel].sfxId;
 }
@@ -257,9 +281,6 @@ int16_t Audio::getMusicTickCount(){
 }
 
 //adapted from zepto8 sfx.cpp (wtfpl license)
-#ifdef _NDS
-__attribute__((section(".itcm"), long_call))
-#endif
 int16_t Audio::getSampleForChannel(int channel){
     if (_audioState._sfxChannels[channel].sfxId == -1) return 0;
 
@@ -437,4 +458,17 @@ int16_t Audio::getSampleForChannel(int channel){
     }
 
     return sample;
+
+}
+
+void Audio::setChannels(int numChannels) {
+#ifdef ARM9
+    DC_InvalidateRange(&_numChannels, sizeof(int));
+#endif
+
+    _numChannels = numChannels;
+
+#ifdef ARM9
+    DC_FlushRange(&_numChannels, sizeof(int));
+#endif
 }

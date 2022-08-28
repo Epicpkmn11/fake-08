@@ -89,14 +89,18 @@ enum
 class Audio {
     PicoRam* _memory;
     audioState _audioState;
-    int _numChannels;
+    int _numChannels = 4;
 
     int16_t getSampleForChannel(int channel);
 
     void set_music_pattern(int pattern);
-    
-    public:
-    Audio(PicoRam* memory, int numChannels);
+
+    static inline z8::fix32 key_to_freq(uint_fast8_t key){
+        return z8::fix32(440) * (z8::fix32(1) << (((int)key - 33) / 12));
+    }
+
+  public:
+    Audio(PicoRam* memory);
 
     void resetAudioState();
     audioState* getAudioState();
@@ -113,6 +117,5 @@ class Audio {
     void FillAudioBuffer(void *audioBuffer,size_t offset, size_t size);
     void FillMonoAudioBuffer(void *audioBuffer,size_t offset, size_t size);
 
-    void setChannels(int numChannels) { _numChannels = numChannels; }
+    void setChannels(int numChannels);
 };
-
