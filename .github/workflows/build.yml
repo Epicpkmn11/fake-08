@@ -29,6 +29,26 @@ jobs:
             platform/3ds/*.cia
 
   second:
+    name: NDS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules : recursive
+
+      - name: Build
+        run: |
+          docker run -e ENABLE_COMPATIBILITY_REPORTING -v $GITHUB_WORKSPACE:/build_dir devkitpro/devkitarm /bin/bash -ex /build_dir/.github/workflows/buildnds.sh
+      
+      - uses: actions/upload-artifact@v2
+        with:
+          name: Nintendo DS
+          path: |
+            platform/nds/*.nds
+
+  third:
     name: Switch
     runs-on: ubuntu-latest
 
@@ -48,7 +68,7 @@ jobs:
           path: |
             platform/switch/*.nro
 
-  third:
+  fourth:
     name: WiiU
     runs-on: ubuntu-latest
 
@@ -68,7 +88,7 @@ jobs:
           path: |
             platform/wiiu/*.rpx
 
-  fourth:
+  fifth:
     name: Vita
     runs-on: ubuntu-latest
 
@@ -88,7 +108,7 @@ jobs:
           path: |
             platform/vita/*.vpk
 
-  fifth:
+  sixth:
     name: Bittboy
     runs-on: ubuntu-latest
 
@@ -109,7 +129,7 @@ jobs:
             platform/bittboy/FAKE08
             platform/bittboy/pico8.elf
 
-  sixth:
+  seventh:
     name: MiyooMini
     runs-on: ubuntu-latest
 
@@ -129,7 +149,7 @@ jobs:
           path: |
             platform/miyoomini/FAKE08
 
-  seventh:
+  eighth:
     name: Opendingux
     runs-on: ubuntu-latest
 
@@ -149,7 +169,7 @@ jobs:
           path: |
             platform/gcw0/fake08_gcw0.opk
             
-  eighth:
+  ninth:
     name: Tests
     runs-on: ubuntu-latest
 
